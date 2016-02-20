@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/credli/osin"
+	"google.golang.org/appengine/datastore"
 )
 
 type ClientModel struct {
@@ -98,15 +99,16 @@ func FromClient(client osin.Client) *ClientModel {
 }
 
 type AccessDataModel struct {
-	ClientID            string    `datastore:"client_id"`
-	AuthorizationCode   string    `datastore:"authorization_code"`
-	PreviousAccessToken string    `datastore:"prev_access_token"`
-	AccessToken         string    `datastore:"access_token"`
-	RefreshToken        string    `datastore:"refresh_token"`
-	ExpiresIn           int32     `datastore:"expires_in"`
-	Scope               string    `datastore:"scope"`
-	RedirectUri         string    `datastore:"redirect_uri"`
-	CreatedAt           time.Time `datastore:"created_at"`
+	UserKey             *datastore.Key `datastore:"user_key"`
+	ClientID            string         `datastore:"client_id"`
+	AuthorizationCode   string         `datastore:"authorization_code"`
+	PreviousAccessToken string         `datastore:"prev_access_token"`
+	AccessToken         string         `datastore:"access_token"`
+	RefreshToken        string         `datastore:"refresh_token"`
+	ExpiresIn           int32          `datastore:"expires_in"`
+	Scope               string         `datastore:"scope"`
+	RedirectUri         string         `datastore:"redirect_uri"`
+	CreatedAt           time.Time      `datastore:"created_at"`
 }
 
 func (a *AccessDataModel) ToAccessData() *osin.AccessData {
@@ -117,11 +119,12 @@ func (a *AccessDataModel) ToAccessData() *osin.AccessData {
 		Scope:        a.Scope,
 		RedirectUri:  a.RedirectUri,
 		CreatedAt:    a.CreatedAt,
-		UserData:     a,
+		UserData:     a.UserKey,
 	}
 }
 
 func FromAccessData(data *osin.AccessData) *AccessDataModel {
+	userKey, _ := data.UserData.(*datastore.Key)
 	var ad = AccessDataModel{
 		AccessToken:  data.AccessToken,
 		RefreshToken: data.RefreshToken,
@@ -129,6 +132,7 @@ func FromAccessData(data *osin.AccessData) *AccessDataModel {
 		Scope:        data.Scope,
 		RedirectUri:  data.RedirectUri,
 		CreatedAt:    data.CreatedAt,
+		UserKey:      userKey,
 	}
 	if data.AuthorizeData == nil {
 		// Client Credentials

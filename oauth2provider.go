@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/credli/osin"
 	"github.com/gorilla/mux"
@@ -53,7 +54,7 @@ func init() {
 	r.HandleFunc("/appauth/password", server.HandleAppAuthPassword)
 	r.HandleFunc("/appauth/info", server.HandleInfo)
 	r.HandleFunc("/appauth/refresh", server.HandleAppAuthRefresh)
-	// r.HandleFunc("/appauth/info", server.HandleAppAuthInfo)
+	r.HandleFunc("/appauth/tokenInfo", server.HandleAppAuthTokenInfo)
 
 	http.Handle("/", r)
 }
@@ -81,7 +82,12 @@ func (s *AEServer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 func (s *AEServer) HandleInitClient(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	s.insertClient(c, "47bef51d-1b4a-4028-b4a1-07dfe3116a9b", "aabbccdd", "http://localhost:14000/appauth")
+	clientID := "47bef51d-1b4a-4028-b4a1-07dfe3116a9b"
+	clientSecret := "aabbccdd"
+	redirectUri := "http://localhost:14000/appauth"
+	name := "Default Client"
+	active := true
+	s.insertClient(c, clientID, clientSecret, redirectUri, name, active)
 }
 
 func (s *AEServer) HandleToken(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +138,7 @@ func (s *AEServer) verifyPassword(c context.Context, username, password string) 
 }
 
 //HandleInfo handles password authentication
-//USAGE: http://localhost:8080/appauth/info?grant_type=password&scope=everything&username=test&password=test
+//USAGE: http://localhost:8080/appauth/info?access_token=<access_token>
 func (s *AEServer) HandleInfo(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	resp := s.server.NewResponse()
@@ -140,6 +146,82 @@ func (s *AEServer) HandleInfo(w http.ResponseWriter, r *http.Request) {
 
 	if ir := s.server.HandleInfoRequest(c, resp, r); ir != nil {
 		s.server.FinishInfoRequest(c, resp, r, ir)
+	}
+	osin.OutputJSON(resp, w, r)
+}
+
+type TokenInfoRequest struct {
+	AccessToken string
+	AccessData  *osin.AccessData
+}
+
+func (s *AEServer) HandleTokenInfoRequest(c context.Context, w *osin.Response, r *http.Request) *TokenInfoRequest {
+	r.ParseForm()
+	token := r.Form.Get("access_token")
+	if token == "" {
+		w.SetError(osin.E_INVALID_REQUEST, "")
+		return nil
+	}
+	ret := &TokenInfoRequest{
+		AccessToken: token,
+	}
+	var err error
+	ret.AccessData, err = s.server.Storage.LoadAccess(c, ret.AccessToken)
+	if err != nil {
+		w.SetError(osin.E_INVALID_REQUEST, "")
+		w.InternalError = err
+		return nil
+	}
+	if ret.AccessData == nil {
+		w.SetError(osin.E_INVALID_REQUEST, "")
+		return nil
+	}
+	if ret.AccessData.Client.GetRedirectUri() == "" {
+		w.SetError(osin.E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	if ret.AccessData.IsExpiredAt(s.server.Now()) {
+		w.SetError(osin.E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	return ret
+}
+
+func (s *AEServer) FinishTokenInfoRequest(c context.Context, w *osin.Response, r *TokenInfoRequest) {
+	if w.IsError {
+		w.Output["error_description"] = w.InternalError.Error()
+		return
+	}
+
+	if aestorage, ok := s.storage.(*AEStorage); ok {
+		//decode from claims
+		u, err := aestorage.LoadUserFromAccessData(c, r.AccessData)
+		if err != nil {
+			w.IsError = true
+			w.InternalError = err
+			w.Output["error"] = err.Error()
+			w.Output["error_description"] = err.Error()
+		}
+		w.Output["user_id"] = u.ID
+		w.Output["email"] = u.Email
+		w.Output["verified_email"] = !u.VerifiedAt.IsZero()
+	}
+	w.Output["issued_to"] = r.AccessData.Client.GetId()
+	w.Output["audience"] = r.AccessData.Client.GetId() //TODO: works temporarily but needs to be updated for Android devices
+	w.Output["scope"] = r.AccessData.Scope
+	w.Output["expires_in"] = r.AccessData.CreatedAt.Add(time.Duration(r.AccessData.ExpiresIn)*time.Second).Sub(s.server.Now()) / time.Second
+	w.Output["access_type"] = "online"
+}
+
+//HandleAppAuthTokenInfo Called implicitly by Endpoints API to gather information about the user
+//USAGE: /appauth/tokenInfo?access_token=<access_token>
+func (s *AEServer) HandleAppAuthTokenInfo(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	resp := s.server.NewResponse()
+	defer resp.Close()
+
+	if ir := s.HandleTokenInfoRequest(c, resp, r); ir != nil {
+		s.FinishTokenInfoRequest(c, resp, ir)
 	}
 	osin.OutputJSON(resp, w, r)
 }

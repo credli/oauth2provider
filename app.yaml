@@ -1,5 +1,5 @@
-application: oauth2provider
-module: oauth
+application: paperplanepub
+module: auth
 version: v1
 runtime: go
 api_version: go1
