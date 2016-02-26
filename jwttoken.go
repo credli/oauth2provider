@@ -3,6 +3,7 @@ package oauth2provider
 import (
 	"github.com/credli/osin"
 	"github.com/dgrijalva/jwt-go"
+	"golang.org/x/net/context"
 )
 
 // JWT access token generator
@@ -11,7 +12,7 @@ type AccessTokenGenJWT struct {
 	PublicKey  []byte
 }
 
-func (c *AccessTokenGenJWT) GenerateAccessToken(data *osin.AccessData, generaterefresh bool) (accesstoken string, refreshtoken string, err error) {
+func (c *AccessTokenGenJWT) GenerateAccessToken(ctx context.Context, data *osin.AccessData, generaterefresh bool) (accesstoken string, refreshtoken string, err error) {
 	// generate JWT access token
 	token := jwt.New(jwt.GetSigningMethod("RS256"))
 	token.Claims["cid"] = data.Client.GetId()
