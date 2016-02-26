@@ -127,7 +127,7 @@ func (s *AEServer) HandleToken(w http.ResponseWriter, r *http.Request) {
 func (s *AEServer) verifyPassword(c context.Context, username, password string) bool {
 	user, err := s.GetUser(c, username)
 	if err != nil {
-		log.Infof(c, "USER NOT FOUND")
+		log.Infof(c, "USER NOT FOUND: %v", err)
 		return false
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -166,7 +166,7 @@ func (s *AEServer) HandleTokenInfoRequest(c context.Context, w *osin.Response, r
 		AccessToken: token,
 	}
 	var err error
-	ret.AccessData, err = s.server.Storage.LoadAccess(c, ret.AccessToken)
+	ret.AccessData, err = s.storage.LoadAccess(c, ret.AccessToken)
 	if err != nil {
 		w.SetError(osin.E_INVALID_REQUEST, "")
 		w.InternalError = err
@@ -201,16 +201,27 @@ func (s *AEServer) FinishTokenInfoRequest(c context.Context, w *osin.Response, r
 			w.InternalError = err
 			w.Output["error"] = err.Error()
 			w.Output["error_description"] = err.Error()
+		} else if u == nil {
+			w.IsError = true
+			w.InternalError = errors.New("User not found")
+			w.Output["error"] = err.Error()
+			w.Output["error_description"] = err.Error()
+		} else {
+			w.Output["user_id"] = u.ID
+			w.Output["email"] = u.Email
+			w.Output["verified_email"] = !u.VerifiedAt.IsZero()
+			w.Output["issued_to"] = r.AccessData.Client.GetId()
+			w.Output["audience"] = r.AccessData.Client.GetId() //TODO: works temporarily but needs to be updated for Android devices
+			w.Output["scope"] = r.AccessData.Scope
+			w.Output["expires_in"] = r.AccessData.CreatedAt.Add(time.Duration(r.AccessData.ExpiresIn)*time.Second).Sub(s.server.Now()) / time.Second
+			w.Output["access_type"] = "online"
 		}
-		w.Output["user_id"] = u.ID
-		w.Output["email"] = u.Email
-		w.Output["verified_email"] = !u.VerifiedAt.IsZero()
+	} else {
+		w.IsError = true
+		w.InternalError = errors.New("Storage is not available")
+		w.Output["error"] = w.InternalError.Error()
+		w.Output["error_description"] = w.InternalError.Error()
 	}
-	w.Output["issued_to"] = r.AccessData.Client.GetId()
-	w.Output["audience"] = r.AccessData.Client.GetId() //TODO: works temporarily but needs to be updated for Android devices
-	w.Output["scope"] = r.AccessData.Scope
-	w.Output["expires_in"] = r.AccessData.CreatedAt.Add(time.Duration(r.AccessData.ExpiresIn)*time.Second).Sub(s.server.Now()) / time.Second
-	w.Output["access_type"] = "online"
 }
 
 //HandleAppAuthTokenInfo Called implicitly by Endpoints API to gather information about the user
@@ -255,7 +266,7 @@ func (s *AEServer) HandleAppAuthPassword(w http.ResponseWriter, r *http.Request)
 		// build access code url
 		aurl := fmt.Sprintf("/token?grant_type=password&scope=everything&username=%s&password=%s", u, p)
 
-		err := downloadAccessToken(c, fmt.Sprintf("http://localhost:8081%s", aurl), &osin.BasicAuth{
+		err := downloadAccessToken(c, aurl, &osin.BasicAuth{
 			Username: "47bef51d-1b4a-4028-b4a1-07dfe3116a9b", Password: "aabbccdd"}, jr) //Password must be encrypted and stored in GCS
 
 		if err != nil {
@@ -346,7 +357,7 @@ func (s *AEServer) HandleAppAuthRefresh(w http.ResponseWriter, r *http.Request) 
 
 		c := appengine.NewContext(r)
 		log.Infof(c, "Getting Refresh")
-		err := downloadAccessToken(c, fmt.Sprintf("http://localhost:8081%s", aurl),
+		err := downloadAccessToken(c, aurl,
 			&osin.BasicAuth{Username: "47bef51d-1b4a-4028-b4a1-07dfe3116a9b", Password: "aabbccdd"}, jr)
 		if err != nil {
 			fmt.Fprintf(w, "{%q:%q}", "error", "Bad Request")
@@ -422,6 +433,7 @@ func downloadAccessToken(c context.Context, url string, auth *osin.BasicAuth, ou
 	if auth == nil || url == "" {
 		return errors.New(osin.E_INVALID_REQUEST)
 	}
+	log.Infof(c, "URL: %s", url)
 
 	// download access token
 	preq, err := http.NewRequest("GET", url, nil)

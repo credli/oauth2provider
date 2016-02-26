@@ -51,11 +51,10 @@ func (d *PPClient) CopyFrom(client osin.Client) {
 
 type User struct {
 	ID                    string    `json:"id" datastore:"id"`
-	Username              string    `validate:"nonzero,min=3,max=40,regexp=^[a-z._]+$" json:"username" datastore:"username"`
+	Email                 string    `validate:"required,email" json:"email" datastore:"email"`
 	Password              string    `validate:"min=8" json:"password" datastore:"-"`
 	PasswordHash          string    `json:"-" datastore:"password_hash"`
-	FullName              string    `validate:"nonzero" json:"full_name" datatstore:"full_name"`
-	Email                 string    `validate:"nonzero" json:"email" datastore:"email"`
+	FullName              string    `validate:"required" json:"full_name" datatstore:"full_name"`
 	Phone                 string    `json:"-" datastore:"phone"`
 	PhoneVerificationCode string    `json:"-" datastore:"phone_verification_code"`
 	VerificationCode      string    `json:"-" datastore:"verification_code"`

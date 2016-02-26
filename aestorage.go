@@ -168,7 +168,6 @@ func (s *AEStorage) LoadAccess(c context.Context, code string) (*osin.AccessData
 		}
 		rtoken.AuthorizeData = auth
 	}
-
 	return rtoken, nil
 }
 
@@ -212,14 +211,14 @@ func (s *AEStorage) LoadUserFromAccessData(c context.Context, data *osin.AccessD
 	if !ok {
 		return nil, errors.New("Access data does not belong to a user")
 	}
-	var u *User
+	var u User
 	err := datastore.Get(c, key, &u)
-	return u, err
+	return &u, err
 }
 
-//GetUser finds a user by username, this is used for password-based authentication
+//GetUser finds a user by email, this is used for password-based authentication
 func (s *AEServer) GetUser(c context.Context, username string) (*User, error) {
-	q := datastore.NewQuery(UserKind).Filter("username =", username)
+	q := datastore.NewQuery(UserKind).Filter("email =", username)
 	var users []*User
 	_, err := q.GetAll(c, &users)
 	if err != nil {
